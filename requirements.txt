@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+sqlalchemy
+alembic
+redis
+akshare
+yfinance
+pydantic-settings
+requests
+apscheduler
