@@ -131,33 +131,64 @@ class YFinanceProvider(DataProvider):
         
         try:
             ticker = yf.Ticker(yf_symbol)
-            # Use history to get price
-            history = ticker.history(period="1d")
-            if history.empty:
-                return None
             
-            current_price = history['Close'].iloc[-1]
+            # Try fast_info first (faster and often more up-to-date for current stats)
+            try:
+                info = ticker.fast_info
+                current_price = info.last_price
+                open_price = info.open
+                high_price = info.day_high
+                low_price = info.day_low
+                # fast_info doesn't always have volume, or it's 'last_volume'
+                # But fast_info object usually has 'last_volume' or we can get it from history if needed.
+                # Actually fast_info has 'last_volume' but sometimes it's None.
+                # Let's check documentation/dir. 
+                # For safety, let's fallback to history for volume if needed or just use what we have.
+                # fast_info keys: 'currency', 'day_high', 'day_low', 'exchange', 'fifty_day_average', 'last_price', 'last_volume', 'market_cap', 'open', 'previous_close', 'quote_type', 'regular_market_previous_close', 'shares', 'ten_day_average_volume', 'three_month_average_volume', 'timezone', 'two_hundred_day_average', 'year_change', 'year_high', 'year_low'
+                volume = info.last_volume if hasattr(info, 'last_volume') else 0
+                
+                # If values are None (e.g. pre-market), might need fallback
+                if current_price is None:
+                    raise ValueError("fast_info missing price")
+
+            except Exception:
+                # Fallback to history
+                history = ticker.history(period="1d")
+                if history.empty:
+                    return None
+                current_price = history['Close'].iloc[-1]
+                open_price = history['Open'].iloc[-1]
+                high_price = history['High'].iloc[-1]
+                low_price = history['Low'].iloc[-1]
+                volume = history['Volume'].iloc[-1]
+
+            name = symbol # Default name
+            # Try to get better name from ticker.info if cached or cheap, but it's slow.
+            # We can use the one from search/sync if available in DB, but here we are in provider.
+            # Let's stick to symbol or try to fetch name if we really need it, but user didn't complain about name.
             
-            # Try to get name from ticker, or fallback
-            name = symbol
             market = "US"
-            if yf_symbol.endswith(".HK"):
-                market = "HK"
-            elif yf_symbol.endswith(".SS") or yf_symbol.endswith(".SZ"):
+            if yf_symbol.endswith(".SS") or yf_symbol.endswith(".SZ"):
                 market = "CN"
-            
+            elif yf_symbol.endswith(".HK"):
+                market = "HK"
+
             return {
-                "symbol": symbol, # Return original requested symbol
+                "symbol": symbol, # Return the requested symbol (e.g. sh600000) or normalized? 
+                                  # Service expects the requested symbol to match DB. 
+                                  # But here we return what we found. 
+                                  # The service uses this dict. 
+                                  # Let's return the input symbol to be safe.
                 "name": name, 
-                "price": float(current_price),
-                "open": float(history['Open'].iloc[-1]),
-                "high": float(history['High'].iloc[-1]),
-                "low": float(history['Low'].iloc[-1]),
-                "volume": float(history['Volume'].iloc[-1]),
+                "price": round(float(current_price), 3),
+                "open": round(float(open_price), 3),
+                "high": round(float(high_price), 3),
+                "low": round(float(low_price), 3),
+                "volume": float(volume), # Volume doesn't need rounding usually, but float is fine
                 "market": market
             }
         except Exception as e:
-            print(f"YFinance error for {yf_symbol}: {e}")
+            print(f"YFinance error for {symbol}: {e}")
             return None
 
     def get_price_history(self, symbol: str, start_date: str, end_date: str) -> List[Dict]:
@@ -165,15 +196,15 @@ class YFinanceProvider(DataProvider):
         try:
             ticker = yf.Ticker(yf_symbol)
             df = ticker.history(start=start_date, end=end_date)
-            
+            # Convert to list of dicts
             result = []
             for date, row in df.iterrows():
                 result.append({
                     "date": date.strftime("%Y-%m-%d"),
-                    "open": float(row['Open']),
-                    "close": float(row['Close']),
-                    "high": float(row['High']),
-                    "low": float(row['Low']),
+                    "open": round(float(row['Open']), 3),
+                    "close": round(float(row['Close']), 3),
+                    "high": round(float(row['High']), 3),
+                    "low": round(float(row['Low']), 3),
                     "volume": float(row['Volume'])
                 })
             return result
@@ -246,27 +277,6 @@ class YFinanceProvider(DataProvider):
         # 2. Another API (like NASDAQ FTP, or EastMoney for CN).
         
         # For demonstration, returning a small list of popular stocks.
-        if market == "CN":
-            return [
-                {"symbol": "600000", "name": "浦发银行", "market": "CN"},
-                {"symbol": "601318", "name": "中国平安", "market": "CN"},
-                {"symbol": "000001", "name": "平安银行", "market": "CN"},
-                {"symbol": "600519", "name": "贵州茅台", "market": "CN"},
-            ]
-        elif market == "US":
-            return [
-                {"symbol": "AAPL", "name": "Apple Inc.", "market": "US"},
-                {"symbol": "MSFT", "name": "Microsoft Corp.", "market": "US"},
-                {"symbol": "GOOGL", "name": "Alphabet Inc.", "market": "US"},
-                {"symbol": "NVDA", "name": "NVIDIA Corp.", "market": "US"},
-                {"symbol": "TSLA", "name": "Tesla Inc.", "market": "US"},
-            ]
-        elif market == "HK":
-            return [
-                {"symbol": "0700.HK", "name": "Tencent", "market": "HK"},
-                {"symbol": "9988.HK", "name": "Alibaba", "market": "HK"},
-                {"symbol": "3690.HK", "name": "Meituan", "market": "HK"},
-            ]
         return []
 
 class DataProviderFactory:

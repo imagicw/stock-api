@@ -14,6 +14,7 @@ class Stock(Base):
     prices = relationship("PriceHistory", back_populates="stock")
 
 class PriceHistory(Base):
+    __tablename__ = "price_history"
     id = Column(Integer, primary_key=True, index=True)
     stock_code = Column(String, ForeignKey("stock.code"), index=True)
     date = Column(Date, index=True)
