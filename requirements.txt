@@ -8,3 +8,5 @@ yfinance
 pydantic-settings
 requests
 apscheduler
+pytest
+httpx

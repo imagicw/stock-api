@@ -13,6 +13,15 @@ class StockService:
         self.redis = get_redis_client()
         self.CACHE_EXPIRE = 3600 * 24 # 24 hours
 
+    def _normalize_code(self, symbol: str) -> str:
+        # Handle CN legacy sh/sz prefix
+        if (symbol.startswith("sh") or symbol.startswith("sz")) and symbol[2:].isdigit() and len(symbol) == 8:
+            return symbol[2:]
+        # Handle CN YFinance suffix .SS/.SZ
+        if symbol.endswith(".SS") or symbol.endswith(".SZ"):
+            return symbol.split(".")[0]
+        return symbol
+
     def get_stock_info(self, symbol: str) -> Optional[Dict]:
         # 1. Check Redis
         cache_key = f"stock:info:{symbol}"
@@ -30,11 +39,16 @@ class StockService:
         
         if data:
             # 3. Save/Update DB (Basic Info)
-            stock = self.db.query(Stock).filter(Stock.symbol == symbol).first()
+            # Normalize code for DB (e.g. sh600000 -> 600000)
+            db_code = self._normalize_code(symbol)
+            
+            # Use code to find stock, as it is the primary key and normalized
+            stock = self.db.query(Stock).filter(Stock.code == db_code).first()
+            
             if not stock:
                 stock = Stock(
-                    code=symbol, # Using symbol as code for simplicity in this logic
-                    symbol=symbol,
+                    code=db_code, 
+                    symbol=db_code, # Keep symbol consistent with code for CN
                     name=data['name'],
                     market=data['market'],
                     type="stock",
@@ -59,21 +73,24 @@ class StockService:
         # Convert date string to object
         target_date = datetime.strptime(date, "%Y-%m-%d").date()
         
+        # Normalize code
+        db_code = self._normalize_code(symbol)
+        
         # Need to find the stock first to get the ID/Code
-        stock = self.db.query(Stock).filter(Stock.symbol == symbol).first()
+        stock = self.db.query(Stock).filter(Stock.code == db_code).first()
         if stock:
-            history = self.db.query(PriceHistory).filter(
+            db_history = self.db.query(PriceHistory).filter(
                 PriceHistory.stock_code == stock.code,
                 PriceHistory.date == target_date
             ).first()
-            if history:
+            if db_history:
                 return {
-                    "date": date,
-                    "open": history.open,
-                    "close": history.close,
-                    "high": history.high,
-                    "low": history.low,
-                    "volume": history.volume
+                    "date": db_history.date,
+                    "open": round(db_history.open, 3),
+                    "close": round(db_history.close, 3),
+                    "high": round(db_history.high, 3),
+                    "low": round(db_history.low, 3),
+                    "volume": db_history.volume
                 }
 
         # If not in DB, fetch range from provider (e.g., surrounding days or just that day)
@@ -91,7 +108,7 @@ class StockService:
             if not stock:
                 # We need basic info first, try to get it
                 self.get_stock_info(symbol)
-                stock = self.db.query(Stock).filter(Stock.symbol == symbol).first()
+                stock = self.db.query(Stock).filter(Stock.code == db_code).first()
             
             if stock:
                 for item in hist_data:
@@ -146,11 +163,20 @@ class StockService:
             stocks = provider.get_stock_list(market)
             for s in stocks:
                 # Upsert
-                existing = self.db.query(Stock).filter(Stock.symbol == s['symbol']).first()
+                # s['symbol'] from AkShare is already 6 digits (e.g. 600000)
+                # s['symbol'] from YFinance dummy is e.g. AAPL or 0700.HK
+                # So we can use it directly as code?
+                # Yes, because _normalize_code("600000") -> "600000"
+                # _normalize_code("AAPL") -> "AAPL"
+                
+                # We should probably normalize it just in case provider returns something else
+                code = self._normalize_code(s['symbol'])
+                
+                existing = self.db.query(Stock).filter(Stock.code == code).first()
                 if not existing:
                     new_stock = Stock(
-                        code=s['symbol'],
-                        symbol=s['symbol'],
+                        code=code,
+                        symbol=code, # Keep symbol consistent
                         name=s['name'],
                         market=s['market'],
                         type="stock",
