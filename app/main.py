@@ -43,8 +43,8 @@ async def startup_event():
     except Exception as e:
         print(f"Scheduler start failed (might be already running): {e}")
 
-app.include_router(stock.router)
+app.include_router(stock.router, prefix="/v1")
 
-@app.get("/")
+@app.get("/v1/")
 def read_root():
     return {"message": "Welcome to Stock API"}
