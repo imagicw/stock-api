@@ -26,6 +26,15 @@ def search_stock(
     data = service.search_stock(name)
     return Response.success(data=data)
 
+@router.get("/stock/market/{market}", response_model=Response)
+def get_stocks_by_market(
+    market: str,
+    service: StockService = Depends(get_stock_service)
+):
+    """获取指定市场的所有股票"""
+    data = service.get_stocks_by_market(market)
+    return Response.success(data=data)
+
 @router.get("/stocks/price", response_model=Response)
 def batch_get_prices(
     symbols: List[str] = Query(..., description="List of symbols, can be comma separated"),
