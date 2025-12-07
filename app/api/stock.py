@@ -24,7 +24,7 @@ def search_stock(
 ):
     """模糊查询股票"""
     data = service.search_stock(name)
-    return Response.success(data=data)
+    return Response.success(data=data, total=len(data))
 
 @router.get("/stock/market/{market}", response_model=Response)
 def get_stocks_by_market(
@@ -33,7 +33,7 @@ def get_stocks_by_market(
 ):
     """获取指定市场的所有股票"""
     data = service.get_stocks_by_market(market)
-    return Response.success(data=data)
+    return Response.success(data=data, total=len(data))
 
 @router.get("/stock/price", response_model=Response)
 def batch_get_prices(
@@ -51,11 +51,11 @@ def batch_get_prices(
     if mode == "simple":
         # Return KV structure: {symbol: price}
         simple_data = {item['symbol']: item['price'] for item in data if item}
-        return Response.success(data=simple_data)
+        return Response.success(data=simple_data, total=len(simple_data))
         
-    return Response.success(data=data)
+    return Response.success(data=data, total=len(data))
 
-@router.get("/stock/{symbol}", response_model=Response)
+@router.get("/stock/{symbol}", response_model=Response, response_model_exclude_none=True)
 def get_stock_info(
     symbol: str,
     service: StockService = Depends(get_stock_service)
@@ -66,7 +66,7 @@ def get_stock_info(
         raise HTTPException(status_code=404, detail="Stock not found")
     return Response.success(data=data)
 
-@router.get("/stock/{symbol}/price", response_model=Response)
+@router.get("/stock/{symbol}/price", response_model=Response, response_model_exclude_none=True)
 def get_price_history(
     symbol: str,
     date: str = Query(..., description="Date in YYYY-MM-DD format"),
