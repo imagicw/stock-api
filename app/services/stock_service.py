@@ -198,3 +198,11 @@ class StockService:
             if data:
                 results.append(data)
         return results
+
+    def get_stocks_by_market(self, market: str) -> List[Dict]:
+        stocks = self.db.query(Stock).filter(Stock.market == market).all()
+        return [{
+            "symbol": s.symbol,
+            "name": s.name,
+            "market": s.market
+        } for s in stocks]

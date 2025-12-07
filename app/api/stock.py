@@ -26,14 +26,33 @@ def search_stock(
     data = service.search_stock(name)
     return Response.success(data=data)
 
-@router.get("/stocks/price", response_model=Response)
+@router.get("/stock/market/{market}", response_model=Response)
+def get_stocks_by_market(
+    market: str,
+    service: StockService = Depends(get_stock_service)
+):
+    """获取指定市场的所有股票"""
+    data = service.get_stocks_by_market(market)
+    return Response.success(data=data)
+
+@router.get("/stock/price", response_model=Response)
 def batch_get_prices(
-    symbols: str = Query(..., description="Comma separated list of symbols"),
+    symbols: List[str] = Query(..., description="List of symbols, can be comma separated"),
+    mode: str = Query("normal", regex="^(normal|simple)$", description="Response mode: normal or simple"),
     service: StockService = Depends(get_stock_service)
 ):
     """批量获取股票当前价格"""
-    symbol_list = symbols.split(",")
+    # Flattens list of splitting comma separated strings
+    symbol_list = []
+    for s in symbols:
+        symbol_list.extend(s.split(","))
     data = service.batch_get_prices(symbol_list)
+    
+    if mode == "simple":
+        # Return KV structure: {symbol: price}
+        simple_data = {item['symbol']: item['price'] for item in data if item}
+        return Response.success(data=simple_data)
+        
     return Response.success(data=data)
 
 @router.get("/stock/{symbol}", response_model=Response)
