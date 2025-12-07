@@ -29,11 +29,18 @@ def search_stock(
 @router.get("/stocks/price", response_model=Response)
 def batch_get_prices(
     symbols: str = Query(..., description="Comma separated list of symbols"),
+    mode: str = Query("normal", regex="^(normal|simple)$", description="Response mode: normal or simple"),
     service: StockService = Depends(get_stock_service)
 ):
     """批量获取股票当前价格"""
     symbol_list = symbols.split(",")
     data = service.batch_get_prices(symbol_list)
+    
+    if mode == "simple":
+        # Return KV structure: {symbol: price}
+        simple_data = {item['symbol']: item['price'] for item in data if item}
+        return Response.success(data=simple_data)
+        
     return Response.success(data=data)
 
 @router.get("/stock/{symbol}", response_model=Response)
