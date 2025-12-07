@@ -35,7 +35,7 @@ def get_stocks_by_market(
     data = service.get_stocks_by_market(market)
     return Response.success(data=data)
 
-@router.get("/stocks/price", response_model=Response)
+@router.get("/stock/price", response_model=Response)
 def batch_get_prices(
     symbols: List[str] = Query(..., description="List of symbols, can be comma separated"),
     mode: str = Query("normal", regex="^(normal|simple)$", description="Response mode: normal or simple"),
