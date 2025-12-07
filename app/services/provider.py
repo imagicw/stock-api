@@ -25,6 +25,11 @@ class DataProvider(ABC):
         """Get list of all stocks for a market"""
         pass
 
+    @abstractmethod
+    def batch_get_stock_info(self, symbols: List[str]) -> List[Dict]:
+        """Batch get stock info"""
+        pass
+
 class AkShareProvider(DataProvider):
     def get_stock_info(self, symbol: str) -> Dict:
         # Symbol format: sh600000
@@ -123,6 +128,15 @@ class AkShareProvider(DataProvider):
         except Exception as e:
             print(f"AkShare get_stock_list error: {e}")
             return []
+
+    def batch_get_stock_info(self, symbols: List[str]) -> List[Dict]:
+        # For AkShare, just loop for now or optimize later if needed
+        results = []
+        for symbol in symbols:
+            info = self.get_stock_info(symbol)
+            if info:
+                results.append(info)
+        return results
 
 class YFinanceProvider(DataProvider):
     def get_stock_info(self, symbol: str) -> Dict:
@@ -278,6 +292,124 @@ class YFinanceProvider(DataProvider):
         
         # For demonstration, returning a small list of popular stocks.
         return []
+
+    def batch_get_stock_info(self, symbols: List[str]) -> List[Dict]:
+        if not symbols:
+            return []
+            
+        # Normalize symbols
+        yf_symbols = [self._normalize_symbol(s) for s in symbols]
+        
+        # Mapping back to original symbols
+        # Note: yf_symbols might have duplicates if input has duplicates
+        # But we can map by index or use a dictionary map
+        # yf.download might return columns with Tickers matching what was passed
+        
+        try:
+            # yf.download
+            # group_by='ticker' makes the top level column the Ticker
+            df = yf.download(tickers=yf_symbols, period="1d", group_by='ticker', threads=True)
+            
+            results = []
+            
+            # If only one symbol, df columns are NOT MultiIndex with ticker at level 0
+            # It changes structure.
+            if len(yf_symbols) == 1:
+                symbol = symbols[0]
+                yf_sym = yf_symbols[0]
+                if df.empty:
+                    return results
+                
+                # df is just single level columns or MultiIndex if more data
+                # With group_by='ticker' and 1 ticker, it might still look like single ticker
+                # Let's check typical yf behavior.
+                # If 1 ticker, columns are just Open, High etc.
+                # We can handle 1 ticker case separately or wrapped
+                
+                try:
+                    current_price = df['Close'].iloc[-1]
+                    open_price = df['Open'].iloc[-1]
+                    high_price = df['High'].iloc[-1]
+                    low_price = df['Low'].iloc[-1]
+                    volume = df['Volume'].iloc[-1]
+                    
+                    results.append({
+                        "symbol": symbol,
+                        "name": symbol, # Detailed name not available in download
+                        "price": round(float(current_price), 3),
+                        "open": round(float(open_price), 3),
+                        "high": round(float(high_price), 3),
+                        "low": round(float(low_price), 3),
+                        "volume": float(volume),
+                        "market": "US" # Default or infer
+                    })
+                except Exception:
+                    pass
+                return results
+
+            # Multiple symbols
+            # df.columns is MultiIndex: (Ticker, PriceType) if group_by='ticker'
+            # ACTUALLY, group_by='ticker' makes Ticker the TOP level. 
+            # Columns: (Ticker, Open), (Ticker, Close)... 
+            # WAIT. Let's check documentation or assumption.
+            # yf.download(..., group_by='ticker') -> Columns: MultiIndex (Ticker, 'Open'), (Ticker, 'Close')...
+            
+            # Iterate over our requested symbols (preserving order)
+            for i, sym in enumerate(symbols):
+                yf_sym = yf_symbols[i]
+                
+                try:
+                    # Check if yf_sym is in df columns (top level)
+                    if yf_sym not in df.columns.levels[0]:
+                        # Maybe invalid or no data
+                        # Also yf sometimes uppercases things
+                        continue
+                        
+                    data = df[yf_sym]
+                    if data.empty or data['Close'].isna().all():
+                        continue
+                        
+                    # Get last row
+                    last_row = data.iloc[-1]
+                    
+                    if True in last_row.isna().values:
+                        # If today's data is partial?
+                        # Just take what we have, but ensure price exists
+                        pass
+                        
+                    current_price = last_row['Close']
+                    open_price = last_row['Open']
+                    high_price = last_row['High']
+                    low_price = last_row['Low']
+                    volume = last_row['Volume']
+                    
+                    # infer market
+                    market = "US"
+                    if yf_sym.endswith(".SS") or yf_sym.endswith(".SZ"):
+                        market = "CN"
+                    elif yf_sym.endswith(".HK"):
+                        market = "HK"
+                        
+                    results.append({
+                        "symbol": sym, # Original symbol
+                        "name": sym, # detailed name not in batch
+                        "price": round(float(current_price), 3),
+                        "open": round(float(open_price), 3),
+                        "high": round(float(high_price), 3),
+                        "low": round(float(low_price), 3),
+                        "volume": float(volume),
+                        "market": market
+                    })
+                except KeyError:
+                    pass
+                except Exception as e:
+                    print(f"Error parsing {sym}: {e}")
+                    
+            return results
+            
+        except Exception as e:
+            print(f"YFinance batch error: {e}")
+            return []
 
 class DataProviderFactory:
     @staticmethod
