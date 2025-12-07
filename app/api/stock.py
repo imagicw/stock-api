@@ -28,12 +28,15 @@ def search_stock(
 
 @router.get("/stocks/price", response_model=Response)
 def batch_get_prices(
-    symbols: str = Query(..., description="Comma separated list of symbols"),
+    symbols: List[str] = Query(..., description="List of symbols, can be comma separated"),
     mode: str = Query("normal", regex="^(normal|simple)$", description="Response mode: normal or simple"),
     service: StockService = Depends(get_stock_service)
 ):
     """批量获取股票当前价格"""
-    symbol_list = symbols.split(",")
+    # Flattens list of splitting comma separated strings
+    symbol_list = []
+    for s in symbols:
+        symbol_list.extend(s.split(","))
     data = service.batch_get_prices(symbol_list)
     
     if mode == "simple":
