@@ -192,11 +192,13 @@ class StockService:
         return count
 
     def batch_get_prices(self, symbols: List[str]) -> List[Dict]:
+        # Optimize by using batch provider if possible
+        # We can group by provider type (CN vs US/HK)
+        
         results = []
-        for symbol in symbols:
-            data = self.get_stock_info(symbol)
-            if data:
-                results.append(data)
+        provider = DataProviderFactory.get_provider(symbol=symbols[0])
+        results.extend(provider.batch_get_stock_info(symbols))
+
         return results
 
     def get_stocks_by_market(self, market: str) -> List[Dict]:
