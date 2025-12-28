@@ -6,6 +6,9 @@ from app.core.redis import get_redis_client
 from app.db.session import SessionLocal
 from app.models.stock import Stock, PriceHistory
 from app.services.provider import DataProviderFactory
+import pandas as pd
+import numpy as np
+from app.utils.indicators import calculate_ma, calculate_macd, calculate_boll, calculate_td9
 
 class StockService:
     def __init__(self, db: Session):
@@ -200,6 +203,69 @@ class StockService:
         results.extend(provider.batch_get_stock_info(symbols))
 
         return results
+
+    def get_stock_price_with_indicators(self, symbol: str, start_date: str, end_date: str) -> List[Dict]:
+        """
+        Get price history with technical indicators.
+        Automatically fetches extra history for indicator calculation.
+        """
+        # 1. Determine calculation start date (need ~200 days for MA120 and stable MACD)
+        req_start = datetime.strptime(start_date, "%Y-%m-%d").date()
+        req_end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        
+        calc_start = req_start - timedelta(days=250) # Buffer for weekends/holidays to get ~120 trading days
+        calc_start_str = calc_start.strftime("%Y-%m-%d")
+        
+        # 2. Fetch Data (Strategy: Fetch from provider to ensure continuity, upsert to DB)
+        provider = DataProviderFactory.get_provider(symbol)
+        raw_data = provider.get_price_history(symbol, calc_start_str, end_date)
+        
+        if not raw_data:
+            return []
+            
+        # 3. Create DataFrame
+        df = pd.DataFrame(raw_data)
+        if df.empty:
+            return []
+            
+        # Ensure types (provider returns basic types, but pandas might infer obj)
+        cols = ['open', 'close', 'high', 'low', 'volume']
+        for col in cols:
+            df[col] = df[col].astype(float)
+        
+        # 4. Calculate Indicators
+        # MA
+        for window in [5, 20, 50, 120]:
+            df[f'ma{window}'] = calculate_ma(df, window)
+            
+        # MACD
+        macd_df = calculate_macd(df)
+        df = pd.concat([df, macd_df], axis=1)
+        
+        # BOLL
+        boll_df = calculate_boll(df)
+        df = pd.concat([df, boll_df], axis=1)
+        
+        # TD9
+        df['td9'] = calculate_td9(df)
+        
+        # 5. Filter for requested range
+        # df['date'] is string YYYY-MM-DD
+        mask = (df['date'] >= start_date) & (df['date'] <= end_date)
+        filtered_df = df[mask].copy()
+        
+        # 6. Format Result
+        # Convert NaN to None for JSON compatibility
+        filtered_df = filtered_df.replace({np.nan: None})
+        
+        # Rounding for cleanliness
+        float_cols = ['ma5', 'ma20', 'ma50', 'ma120', 'dif', 'dea', 'macd', 'mid', 'upper', 'lower']
+        for col in float_cols:
+             if col in filtered_df.columns:
+                 filtered_df[col] = filtered_df[col].apply(lambda x: round(x, 3) if x is not None else None)
+
+        return filtered_df.to_dict(orient='records')
+
 
     def get_stocks_by_market(self, market: str) -> List[Dict]:
         stocks = self.db.query(Stock).filter(Stock.market == market).all()

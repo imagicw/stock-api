@@ -308,7 +308,7 @@ class YFinanceProvider(DataProvider):
         try:
             # yf.download
             # group_by='ticker' makes the top level column the Ticker
-            df = yf.download(tickers=yf_symbols, period="1d", group_by='ticker', threads=True)
+            df = yf.download(tickers=yf_symbols, period="1d", group_by='ticker', threads=True, auto_adjust=True)
             
             results = []
             
